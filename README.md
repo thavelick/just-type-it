@@ -18,7 +18,7 @@ A CLI typing tutor with a slick TUI interface, inspired by TypeRacer.
 Make sure you have [uv](https://github.com/astral-sh/uv) installed, then:
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/thavelick/just-type-it.git
 cd just-type-it
 chmod +x just_type_it.py
 ```
