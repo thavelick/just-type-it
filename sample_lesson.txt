@@ -1,0 +1,5 @@
+Programming isn't about typing, it's about thinking and understanding the problem deeply. Before you write a single line of code, take the time to understand what you're trying to solve.
+
+Code is like humor. When you have to explain it, it's bad.
+
+Good programmers write code that humans can understand. Don't prioritize the computer's convenience over the reader's.
