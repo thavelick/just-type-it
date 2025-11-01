@@ -1,4 +1,4 @@
-#!/usr/bin/env -S uv run
+#!/usr/bin/env python3
 """
 just-type-it: A CLI typing tutor with a slick TUI interface
 """
