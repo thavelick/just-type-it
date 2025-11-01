@@ -13,7 +13,8 @@ A CLI typing tutor with a slick TUI interface, inspired by TypeRacer.
 - **Lesson stack**: Go back to previous lessons with B, supports nested mistake practice
 - **Bag shuffle**: Mistake lessons use "bag shuffle" pattern (like Tetris) for optimal practice
 - **Multi-line support**: Preserves formatting with visible line breaks (↵ symbol)
-- **Flexible input**: Direct text input, files, or default text
+- **Flexible input**: Direct text input, files, random selection from a library directory, or default text
+- **TypeRacer text library**: 11,871+ real TypeRacer texts available via the `--library` option
 - **Customizable lessons**: Repeat and shuffle words/lines to create varied practice sessions
 - **Zero dependencies**: Built with Python's curses library
 
@@ -48,6 +49,27 @@ That's it! The script uses `uv run` in the shebang, so uv will handle the virtua
 ```
 
 The program preserves formatting, including line breaks. When you need to press Enter, you'll see a `↵` symbol.
+
+### Random text from a library directory
+
+```bash
+./just_type_it.py --library texts
+# Or use the short form:
+./just_type_it.py -l texts
+```
+
+This will randomly select one file from the specified directory and use its content as the lesson text. Perfect for variety when you have a collection of texts!
+
+**TypeRacer text library**: Download 11,871+ real TypeRacer texts using the included parser script:
+
+```bash
+# Download and parse TypeRacer texts (one-time setup)
+curl -o typeracer_texts.html "https://typeracerdata.com/texts?texts=full&sort=relative_average"
+uv run parse_typeracer_texts.py
+
+# Now you can practice with random TypeRacer texts!
+./just_type_it.py --library texts
+```
 
 ### Default text
 
@@ -94,6 +116,7 @@ After finishing a lesson, press **R** to repeat the same lesson, or any other ke
 
 - `-i TEXT`, `--input TEXT`: Text to practice (passed directly as argument)
 - `-t FILE`, `--text FILE`: Load text from a file
+- `-l DIR`, `--library DIR`: Randomly select a text file from the specified directory
 - `-r N`, `--repeats N`: Repeat the lesson text N times (default: 1)
 - `-s`, `--shuffle`: Shuffle words (single-line) or lines (multi-line) in the lesson
 - `-h`, `--help`: Show help message
@@ -110,6 +133,7 @@ After finishing a lesson, press **R** to repeat the same lesson, or any other ke
 ### On Summary Screen
 - **R**: Repeat the current lesson
 - **M**: Practice your mistakes (creates lesson from top 10 mistyped words)
+- **N**: New text (library mode only - loads a new random text from the library)
 - **B**: Go back to previous lesson in the stack
 - **Q**: Quit the program
 
@@ -127,7 +151,7 @@ After finishing a lesson, press **R** to repeat the same lesson, or any other ke
 5. **Completion**: When you finish, see a summary screen with:
    - Final statistics (Time, WPM, Accuracy)
    - Top 10 most mistyped words with error counts
-   - Options: R (repeat), M (practice mistakes), B (go back), Q (quit)
+   - Options: R (repeat), M (practice mistakes), N (new text - library mode only), B (go back), Q (quit)
 6. **Practice mistakes**: Press M to create a focused lesson from your top 10 mistyped words
    - Words are repeated 3 times using "bag shuffle" (each bag shuffled independently)
    - Example: mistakes ["a", "b"] → possible lesson: "b a a b b a"
@@ -154,6 +178,19 @@ After finishing a lesson, press **R** to repeat the same lesson, or any other ke
 ./just_type_it.py -i "The quick brown fox jumps over the lazy dog"
 ```
 
+### Practice with random TypeRacer texts
+
+```bash
+# Random text from the TypeRacer library
+./just_type_it.py --library texts
+
+# Combine with shuffle for word randomization
+./just_type_it.py -l texts -s
+
+# Repeat the same random text 5 times, shuffled
+./just_type_it.py -l texts -r 5 -s
+```
+
 ### Create a varied practice session
 
 ```bash
@@ -178,15 +215,29 @@ After finishing a lesson, press **R** to repeat the same lesson, or any other ke
 7. Press Q to quit
 ```
 
+### Library mode workflow
+
+```
+1. Start with library: ./just_type_it.py -l texts
+2. Complete the text and view your stats
+3. Press N to load a brand new random text from the library
+4. Press M to practice mistakes from the current text
+5. Press N again to get another random text
+6. Press B to go back to previous texts or mistake lessons
+7. Press Q to quit
+```
+
 ## Tips
 
 - Start with short texts to warm up
+- Use `--library texts` to practice with random TypeRacer texts for endless variety
+- In library mode, press N after each lesson to quickly move to a new random text
+- Press B to go back through your history of random texts and mistake lessons
 - Use `--repeats` to build muscle memory for specific words or phrases
 - Use `--shuffle` to prevent memorizing the exact order
 - Remember: you must backspace to fix mistakes - this builds accuracy!
 - Press M to practice your mistake words - this is the fastest way to improve
 - Use nested mistake practice to drill down on your hardest words
-- Press B to return to a previous lesson if you want to try it again with better accuracy
 - The bag shuffle pattern ensures balanced practice of all mistake words
 
 ## License

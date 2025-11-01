@@ -9,6 +9,7 @@ import logging
 import random
 import sys
 import time
+from pathlib import Path
 from typing import Optional
 
 # Set up debug logging
@@ -72,10 +73,37 @@ class TypingStats:
         return sorted_words[:n]
 
 
-def load_text(text_file: Optional[str], text_input: Optional[str]) -> str:
-    """Load text from file, direct input, or use default"""
+def get_random_file_from_library(library_path: str) -> str:
+    """Get a random file from a library directory"""
+    library = Path(library_path)
+
+    if not library.exists():
+        raise FileNotFoundError(f"Library directory not found: {library_path}")
+
+    if not library.is_dir():
+        raise NotADirectoryError(f"Library path is not a directory: {library_path}")
+
+    # Get all files in the directory (not subdirectories)
+    files = [f for f in library.iterdir() if f.is_file()]
+
+    if not files:
+        raise ValueError(f"No files found in library directory: {library_path}")
+
+    # Pick a random file
+    random_file = random.choice(files)
+    return str(random_file)
+
+
+def load_text(text_file: Optional[str], text_input: Optional[str], library_path: Optional[str]) -> str:
+    """Load text from file, direct input, library, or use default"""
     if text_input:
         return text_input
+    elif library_path:
+        # Pick a random file from the library
+        random_file = get_random_file_from_library(library_path)
+        logging.info(f"Selected random file from library: {random_file}")
+        with open(random_file, 'r') as f:
+            return f.read().rstrip()
     elif text_file:
         with open(text_file, 'r') as f:
             return f.read().rstrip()  # Remove trailing whitespace but preserve internal formatting
@@ -381,10 +409,10 @@ def typing_tutor(stdscr, lesson: str):
     return stats
 
 
-def show_summary(stdscr, stats: TypingStats, lesson_length: int, can_go_back: bool) -> str:
+def show_summary(stdscr, stats: TypingStats, lesson_length: int, can_go_back: bool, in_library_mode: bool = False) -> str:
     """
     Show final statistics summary.
-    Returns action: "repeat", "mistakes", "back", or "quit"
+    Returns action: "repeat", "mistakes", "back", "new", or "quit"
     """
     logging.info("show_summary called")
 
@@ -451,6 +479,8 @@ def show_summary(stdscr, stats: TypingStats, lesson_length: int, can_go_back: bo
     prompt_parts = ["R: repeat"]
     if has_mistakes:
         prompt_parts.append("M: practice mistakes")
+    if in_library_mode:
+        prompt_parts.append("N: new text")
     if can_go_back:
         prompt_parts.append("B: go back")
     prompt_parts.append("Q: quit")
@@ -472,6 +502,8 @@ def show_summary(stdscr, stats: TypingStats, lesson_length: int, can_go_back: bo
             return "repeat"
         elif key in (ord('m'), ord('M')) and has_mistakes:
             return "mistakes"
+        elif key in (ord('n'), ord('N')) and in_library_mode:
+            return "new"
         elif key in (ord('b'), ord('B')) and can_go_back:
             return "back"
         elif key in (ord('q'), ord('Q')):
@@ -495,6 +527,10 @@ def main():
         help='Text file to use for typing practice'
     )
     parser.add_argument(
+        '-l', '--library',
+        help='Path to directory containing text files - will select a random file'
+    )
+    parser.add_argument(
         '-r', '--repeats',
         type=int,
         default=1,
@@ -507,10 +543,14 @@ def main():
     )
 
     args = parser.parse_args()
-    logging.info(f"Args: input={args.input}, text={args.text}, repeats={args.repeats}, shuffle={args.shuffle}")
+    logging.info(f"Args: input={args.input}, text={args.text}, library={args.library}, repeats={args.repeats}, shuffle={args.shuffle}")
+
+    # Store library path for later use
+    library_path = args.library
+    in_library_mode = library_path is not None
 
     # Load and generate lesson text
-    text = load_text(args.text, args.input)
+    text = load_text(args.text, args.input, library_path)
     logging.info(f"Loaded text: {text[:100]}...")
 
     lesson = generate_lesson(text, args.repeats, args.shuffle)
@@ -539,7 +579,7 @@ def main():
             if stats.total_keystrokes > 0:
                 logging.info("Showing summary")
                 can_go_back = len(lesson_stack) > 1
-                action = curses.wrapper(show_summary, stats, len(current_lesson), can_go_back)
+                action = curses.wrapper(show_summary, stats, len(current_lesson), can_go_back, in_library_mode)
                 logging.info(f"Action = {action}")
 
                 if action == "repeat":
@@ -552,6 +592,13 @@ def main():
                         mistake_lesson = create_bag_shuffle_lesson(top_words, 3)
                         lesson_stack.append(mistake_lesson)
                         logging.info(f"Created mistake lesson: {mistake_lesson[:50]}...")
+                elif action == "new":
+                    # Load a new random text from library
+                    new_text = load_text(None, None, library_path)
+                    new_lesson = generate_lesson(new_text, args.repeats, args.shuffle)
+                    # Add new lesson to stack
+                    lesson_stack.append(new_lesson)
+                    logging.info(f"Created new lesson from library: {new_lesson[:50]}...")
                 elif action == "back":
                     # Go back to previous lesson
                     if len(lesson_stack) > 1:
