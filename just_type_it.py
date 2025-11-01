@@ -9,6 +9,7 @@ import logging
 import random
 import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -18,6 +19,13 @@ logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(message)s'
 )
+
+
+@dataclass
+class Lesson:
+    """Represents a typing lesson with optional source attribution"""
+    text: str
+    source: Optional[str] = None
 
 
 class TypingStats:
@@ -73,6 +81,30 @@ class TypingStats:
         return sorted_words[:n]
 
 
+def parse_preamble(text: str) -> tuple[str, Optional[str]]:
+    """
+    Parse optional preamble from text.
+
+    Format:
+        source: Movie Title
+        ---
+        Actual text to type
+
+    Returns:
+        (text_to_type, source) where source is None if no preamble found
+    """
+    lines = text.split('\n', 2)  # Split into at most 3 parts
+
+    # Check if we have a preamble format: "source: ..." followed by "---"
+    if len(lines) >= 3 and lines[0].startswith('source:') and lines[1].strip() == '---':
+        source = lines[0][7:].strip()  # Remove "source:" prefix
+        actual_text = lines[2]  # Everything after the ---
+        return (actual_text, source)
+
+    # No preamble found
+    return (text, None)
+
+
 def get_random_file_from_library(library_path: str) -> str:
     """Get a random file from a library directory"""
     library = Path(library_path)
@@ -94,22 +126,30 @@ def get_random_file_from_library(library_path: str) -> str:
     return str(random_file)
 
 
-def load_text(text_file: Optional[str], text_input: Optional[str], library_path: Optional[str]) -> str:
-    """Load text from file, direct input, library, or use default"""
+def load_text(text_file: Optional[str], text_input: Optional[str], library_path: Optional[str]) -> Lesson:
+    """
+    Load text from file, direct input, library, or use default.
+    Returns a Lesson object with optional source attribution.
+    """
+    raw_text = None
     if text_input:
-        return text_input
+        raw_text = text_input
     elif library_path:
         # Pick a random file from the library
         random_file = get_random_file_from_library(library_path)
         logging.info(f"Selected random file from library: {random_file}")
         with open(random_file, 'r') as f:
-            return f.read().rstrip()
+            raw_text = f.read().rstrip()
     elif text_file:
         with open(text_file, 'r') as f:
-            return f.read().rstrip()  # Remove trailing whitespace but preserve internal formatting
+            raw_text = f.read().rstrip()  # Remove trailing whitespace but preserve internal formatting
     else:
         # Default text if nothing provided
-        return "The quick brown fox jumps over the lazy dog"
+        raw_text = "The quick brown fox jumps over the lazy dog"
+
+    # Parse preamble if present and return Lesson
+    text, source = parse_preamble(raw_text)
+    return Lesson(text=text, source=source)
 
 
 def generate_lesson(text: str, repeats: int, shuffle: bool) -> str:
@@ -163,8 +203,8 @@ def create_bag_shuffle_lesson(words: list[str], num_bags: int = 3) -> str:
     return ' '.join(bags)
 
 
-def draw_lesson_text(stdscr, lesson: str, position: int, has_error: bool, start_y: int):
-    """Draw the lesson text with color coding"""
+def draw_lesson_text(stdscr, lesson: str, position: int, has_error: bool, start_y: int, source: Optional[str] = None):
+    """Draw the lesson text with color coding and optional source"""
     max_y, max_x = stdscr.getmaxyx()
 
     # Draw the lesson text with colors
@@ -198,6 +238,17 @@ def draw_lesson_text(stdscr, lesson: str, position: int, has_error: bool, start_
                 x = 0
                 y += 1
 
+    # Draw source if present (after the lesson text)
+    if source:
+        # Move to next line after lesson text
+        if x > 0:  # If we're not already at the start of a line
+            y += 1
+        y += 1  # Add a blank line for spacing
+
+        if y < max_y - 4:  # Make sure we have room
+            source_text = f"— {source}"
+            stdscr.addstr(y, 0, source_text, curses.color_pair(4) | curses.A_DIM)
+
 
 def get_current_word(lesson: str, position: int) -> tuple[str, int]:
     """Get the current word being typed and its start position"""
@@ -214,14 +265,15 @@ def get_current_word(lesson: str, position: int) -> tuple[str, int]:
     return lesson[word_start:word_end], word_start
 
 
-def typing_tutor(stdscr, lesson: str):
+def typing_tutor(stdscr, lesson: Lesson):
     """Main typing tutor interface using curses"""
-    logging.info(f"Starting typing_tutor with lesson: {lesson[:50]}...")
+    logging.info(f"Starting typing_tutor with lesson: {lesson.text[:50]}...")
 
     # Initialize colors
     curses.init_pair(1, curses.COLOR_GREEN, curses.COLOR_BLACK)  # Correct
     curses.init_pair(2, curses.COLOR_WHITE, curses.COLOR_RED)    # Error
     curses.init_pair(3, curses.COLOR_YELLOW, curses.COLOR_BLACK) # Stats
+    curses.init_pair(4, curses.COLOR_CYAN, curses.COLOR_BLACK)   # Source
 
     # Hide cursor
     curses.curs_set(0)
@@ -254,14 +306,14 @@ def typing_tutor(stdscr, lesson: str):
 
         # Draw the lesson text
         has_error = len(typed_chars) > 0
-        draw_lesson_text(stdscr, lesson, position, has_error, 2)
+        draw_lesson_text(stdscr, lesson.text, position, has_error, 2, lesson.source)
 
         # Get current word and what user has typed for it
-        current_word, word_start = get_current_word(lesson, position)
+        current_word, word_start = get_current_word(lesson.text, position)
 
         # Calculate how much of the current word we've typed correctly
         chars_typed_in_word = position - word_start
-        correctly_typed = lesson[word_start:position]
+        correctly_typed = lesson.text[word_start:position]
 
         # Combine correctly typed chars with any errors
         display_text = correctly_typed + typed_chars
@@ -289,7 +341,7 @@ def typing_tutor(stdscr, lesson: str):
         stdscr.refresh()
 
         # Check if lesson is complete
-        if position >= len(lesson):
+        if position >= len(lesson.text):
             break
 
         # Get user input
@@ -338,7 +390,7 @@ def typing_tutor(stdscr, lesson: str):
                 typed_chars += '↵'
                 logging.info(f"Blocked Enter (must fix errors first) -> typed_chars='{typed_chars}'")
             else:
-                expected_char = lesson[position]
+                expected_char = lesson.text[position]
                 is_correct = (expected_char == '\n')
                 stats.record_keystroke(is_correct)
 
@@ -346,7 +398,7 @@ def typing_tutor(stdscr, lesson: str):
                     # Correct Enter - advance position
                     # Check if the current word had errors before moving to next line
                     if current_word_had_error and position > 0:
-                        current_word, word_start = get_current_word(lesson, position - 1)
+                        current_word, word_start = get_current_word(lesson.text, position - 1)
                         if current_word and current_word.strip():  # Ensure it's not empty or whitespace
                             stats.record_mistyped_word(current_word)
                             logging.info(f"Recorded mistyped word: '{current_word}'")
@@ -372,7 +424,7 @@ def typing_tutor(stdscr, lesson: str):
                 current_word_had_error = True  # Mark current word as having errors
                 logging.info(f"Blocked '{char}' (must fix errors first) -> typed_chars='{typed_chars}'")
             else:
-                expected_char = lesson[position]
+                expected_char = lesson.text[position]
 
                 # Record the keystroke
                 is_correct = (char == expected_char)
@@ -383,7 +435,7 @@ def typing_tutor(stdscr, lesson: str):
                     # Check if we just completed a word (typed space or newline)
                     if char in (' ', '\n') and current_word_had_error and position > 0:
                         # Extract the word we just completed (the word before this space/newline)
-                        current_word, word_start = get_current_word(lesson, position - 1)
+                        current_word, word_start = get_current_word(lesson.text, position - 1)
                         if current_word and current_word.strip():  # Ensure it's not empty or whitespace
                             stats.record_mistyped_word(current_word)
                             logging.info(f"Recorded mistyped word: '{current_word}'")
@@ -400,12 +452,12 @@ def typing_tutor(stdscr, lesson: str):
 
     # Handle the last word if it had errors and wasn't followed by space/newline
     if current_word_had_error and position > 0:
-        current_word, word_start = get_current_word(lesson, position - 1)
+        current_word, word_start = get_current_word(lesson.text, position - 1)
         if current_word and current_word.strip():
             stats.record_mistyped_word(current_word)
             logging.info(f"Recorded final mistyped word: '{current_word}'")
 
-    logging.info(f"Exiting typing_tutor loop, position={position}, lesson_length={len(lesson)}")
+    logging.info(f"Exiting typing_tutor loop, position={position}, lesson_length={len(lesson.text)}")
     return stats
 
 
@@ -550,25 +602,30 @@ def main():
     in_library_mode = library_path is not None
 
     # Load and generate lesson text
-    text = load_text(args.text, args.input, library_path)
-    logging.info(f"Loaded text: {text[:100]}...")
+    loaded = load_text(args.text, args.input, library_path)
+    logging.info(f"Loaded text: {loaded.text[:100]}...")
+    if loaded.source:
+        logging.info(f"Source: {loaded.source}")
 
-    lesson = generate_lesson(text, args.repeats, args.shuffle)
-    logging.info(f"Generated lesson (length={len(lesson)}): {lesson[:100]}...")
+    lesson_text = generate_lesson(loaded.text, args.repeats, args.shuffle)
+    logging.info(f"Generated lesson (length={len(lesson_text)}): {lesson_text[:100]}...")
 
-    if not lesson:
+    if not lesson_text:
         logging.error("No lesson text available")
         print("Error: No text to practice with", file=sys.stderr)
         sys.exit(1)
 
+    # Create initial lesson with source
+    initial_lesson = Lesson(text=lesson_text, source=loaded.source)
+
     # Run the typing tutor with lesson stack
-    lesson_stack = [lesson]  # Start with original lesson
+    lesson_stack = [initial_lesson]  # Start with original lesson
 
     while True:
         try:
             # Get current lesson from top of stack
             current_lesson = lesson_stack[-1]
-            logging.info(f"Current lesson (stack depth={len(lesson_stack)}): {current_lesson[:50]}...")
+            logging.info(f"Current lesson (stack depth={len(lesson_stack)}): {current_lesson.text[:50]}...")
 
             # Run typing tutor
             logging.info("Calling curses.wrapper(typing_tutor)")
@@ -579,7 +636,7 @@ def main():
             if stats.total_keystrokes > 0:
                 logging.info("Showing summary")
                 can_go_back = len(lesson_stack) > 1
-                action = curses.wrapper(show_summary, stats, len(current_lesson), can_go_back, in_library_mode)
+                action = curses.wrapper(show_summary, stats, len(current_lesson.text), can_go_back, in_library_mode)
                 logging.info(f"Action = {action}")
 
                 if action == "repeat":
@@ -589,16 +646,19 @@ def main():
                     # Create new lesson from mistyped words
                     top_words = [word for word, _ in stats.get_top_mistyped_words(10)]
                     if top_words:
-                        mistake_lesson = create_bag_shuffle_lesson(top_words, 3)
+                        mistake_lesson_text = create_bag_shuffle_lesson(top_words, 3)
+                        # Mistake lessons have no source
+                        mistake_lesson = Lesson(text=mistake_lesson_text, source=None)
                         lesson_stack.append(mistake_lesson)
-                        logging.info(f"Created mistake lesson: {mistake_lesson[:50]}...")
+                        logging.info(f"Created mistake lesson: {mistake_lesson_text[:50]}...")
                 elif action == "new":
                     # Load a new random text from library
-                    new_text = load_text(None, None, library_path)
-                    new_lesson = generate_lesson(new_text, args.repeats, args.shuffle)
-                    # Add new lesson to stack
+                    loaded = load_text(None, None, library_path)
+                    new_lesson_text = generate_lesson(loaded.text, args.repeats, args.shuffle)
+                    # Add new lesson to stack with its source
+                    new_lesson = Lesson(text=new_lesson_text, source=loaded.source)
                     lesson_stack.append(new_lesson)
-                    logging.info(f"Created new lesson from library: {new_lesson[:50]}...")
+                    logging.info(f"Created new lesson from library: {new_lesson_text[:50]}...")
                 elif action == "back":
                     # Go back to previous lesson
                     if len(lesson_stack) > 1:
