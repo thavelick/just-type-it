@@ -9,6 +9,9 @@ A CLI typing tutor with a slick TUI interface, inspired by TypeRacer.
 - **Error enforcement**: Must backspace to fix mistakes before continuing (like a real typing test!)
 - **Live statistics**: See your WPM, accuracy, and elapsed time in real-time
 - **Mistyped word tracking**: See your top 10 most mistyped words after each session
+- **Practice your mistakes**: Press M to create a new lesson from your mistyped words
+- **Lesson stack**: Go back to previous lessons with B, supports nested mistake practice
+- **Bag shuffle**: Mistake lessons use "bag shuffle" pattern (like Tetris) for optimal practice
 - **Multi-line support**: Preserves formatting with visible line breaks (↵ symbol)
 - **Flexible input**: Direct text input, files, or default text
 - **Customizable lessons**: Repeat and shuffle words/lines to create varied practice sessions
@@ -97,12 +100,18 @@ After finishing a lesson, press **R** to repeat the same lesson, or any other ke
 
 ## Keyboard Controls
 
+### During Typing
 - **Type normally**: Match the lesson text character by character
 - **Enter/Return**: Press when you see the `↵` symbol to match line breaks
 - **Backspace**: Fix mistakes by going back
-- **ESC**: Quit the session early
-- **R** (on summary screen): Repeat the lesson
+- **ESC**: Quit the current lesson early
 - **Ctrl+C**: Also quits
+
+### On Summary Screen
+- **R**: Repeat the current lesson
+- **M**: Practice your mistakes (creates lesson from top 10 mistyped words)
+- **B**: Go back to previous lesson in the stack
+- **Q**: Quit the program
 
 ## How It Works
 
@@ -118,7 +127,12 @@ After finishing a lesson, press **R** to repeat the same lesson, or any other ke
 5. **Completion**: When you finish, see a summary screen with:
    - Final statistics (Time, WPM, Accuracy)
    - Top 10 most mistyped words with error counts
-6. **Repeat**: Press R on the summary to practice the same lesson again
+   - Options: R (repeat), M (practice mistakes), B (go back), Q (quit)
+6. **Practice mistakes**: Press M to create a focused lesson from your top 10 mistyped words
+   - Words are repeated 3 times using "bag shuffle" (each bag shuffled independently)
+   - Example: mistakes ["a", "b"] → possible lesson: "b a a b b a"
+   - Can practice mistakes of mistakes for unlimited nesting
+7. **Go back**: Press B to return to previous lesson in the stack
 
 ## Statistics
 
@@ -152,13 +166,28 @@ After finishing a lesson, press **R** to repeat the same lesson, or any other ke
 ./just_type_it.py -i "the quick brown fox" -r 10
 ```
 
+### Practice workflow example
+
+```
+1. Start with a lesson: ./just_type_it.py -t sample_lesson.txt
+2. After completing, see your mistakes in the summary
+3. Press M to practice just those mistyped words
+4. Complete the mistake lesson and press M again for nested practice
+5. Press B to go back to the previous mistake lesson
+6. Press B again to return to the original lesson
+7. Press Q to quit
+```
+
 ## Tips
 
 - Start with short texts to warm up
 - Use `--repeats` to build muscle memory for specific words or phrases
 - Use `--shuffle` to prevent memorizing the exact order
 - Remember: you must backspace to fix mistakes - this builds accuracy!
-- Press R after completing a lesson to repeat it and improve your speed
+- Press M to practice your mistake words - this is the fastest way to improve
+- Use nested mistake practice to drill down on your hardest words
+- Press B to return to a previous lesson if you want to try it again with better accuracy
+- The bag shuffle pattern ensures balanced practice of all mistake words
 
 ## License
 

@@ -118,6 +118,23 @@ def generate_lesson(text: str, repeats: int, shuffle: bool) -> str:
         return ' '.join(words)
 
 
+def create_bag_shuffle_lesson(words: list[str], num_bags: int = 3) -> str:
+    """
+    Create a lesson using bag shuffle pattern (like modern Tetris).
+    Each bag contains all words once, shuffled independently.
+
+    Example: words=["a", "b"], num_bags=3
+    Result: shuffle(["a","b"]) + shuffle(["a","b"]) + shuffle(["a","b"])
+    Possible: "b a a b b a" but NOT "a a a b b b"
+    """
+    bags = []
+    for _ in range(num_bags):
+        bag = words.copy()
+        random.shuffle(bag)
+        bags.extend(bag)
+    return ' '.join(bags)
+
+
 def draw_lesson_text(stdscr, lesson: str, position: int, has_error: bool, start_y: int):
     """Draw the lesson text with color coding"""
     max_y, max_x = stdscr.getmaxyx()
@@ -269,7 +286,7 @@ def typing_tutor(stdscr, lesson: str):
             stats.start()
             logging.info("Timer started")
 
-        # Handle ESC key
+        # Handle ESC key to quit
         if key == 27:  # ESC
             logging.info("ESC pressed, exiting")
             break
@@ -364,8 +381,11 @@ def typing_tutor(stdscr, lesson: str):
     return stats
 
 
-def show_summary(stdscr, stats: TypingStats, lesson_length: int) -> bool:
-    """Show final statistics summary. Returns True if user wants to repeat."""
+def show_summary(stdscr, stats: TypingStats, lesson_length: int, can_go_back: bool) -> str:
+    """
+    Show final statistics summary.
+    Returns action: "repeat", "mistakes", "back", or "quit"
+    """
     logging.info("show_summary called")
 
     # Make sure getch() blocks and waits for input
@@ -426,17 +446,37 @@ def show_summary(stdscr, stats: TypingStats, lesson_length: int) -> bool:
             y += 1
         y += 1
 
+    # Build prompt based on available options
+    has_mistakes = len(stats.mistyped_words) > 0
+    prompt_parts = ["R: repeat"]
+    if has_mistakes:
+        prompt_parts.append("M: practice mistakes")
+    if can_go_back:
+        prompt_parts.append("B: go back")
+    prompt_parts.append("Q: quit")
+    prompt = " | ".join(prompt_parts)
+
     # Draw final prompt (centered)
-    prompt = "Press R to repeat or any other key to exit..."
     stdscr.addstr(y, max(0, (max_x - len(prompt)) // 2), prompt)
 
     stdscr.refresh()
-    logging.info("Waiting for key press to exit summary...")
-    key = stdscr.getch()
-    logging.info(f"Got key {key} in summary")
 
-    # Check if user wants to repeat (r or R)
-    return key in (ord('r'), ord('R'))
+    # Loop until user presses a valid key
+    while True:
+        logging.info("Waiting for key press in summary...")
+        key = stdscr.getch()
+        logging.info(f"Got key {key} in summary")
+
+        # Check which action was requested
+        if key in (ord('r'), ord('R')):
+            return "repeat"
+        elif key in (ord('m'), ord('M')) and has_mistakes:
+            return "mistakes"
+        elif key in (ord('b'), ord('B')) and can_go_back:
+            return "back"
+        elif key in (ord('q'), ord('Q')):
+            return "quit"
+        # If invalid key, loop continues (do nothing)
 
 
 def main():
@@ -481,25 +521,52 @@ def main():
         print("Error: No text to practice with", file=sys.stderr)
         sys.exit(1)
 
-    # Run the typing tutor - loop if user wants to repeat
-    repeat = True
-    while repeat:
+    # Run the typing tutor with lesson stack
+    lesson_stack = [lesson]  # Start with original lesson
+
+    while True:
         try:
+            # Get current lesson from top of stack
+            current_lesson = lesson_stack[-1]
+            logging.info(f"Current lesson (stack depth={len(lesson_stack)}): {current_lesson[:50]}...")
+
+            # Run typing tutor
             logging.info("Calling curses.wrapper(typing_tutor)")
-            stats = curses.wrapper(typing_tutor, lesson)
+            stats = curses.wrapper(typing_tutor, current_lesson)
             logging.info(f"typing_tutor returned, stats: keystrokes={stats.total_keystrokes}")
 
-            # Show summary
+            # Show summary if user typed anything
             if stats.total_keystrokes > 0:
                 logging.info("Showing summary")
-                repeat = curses.wrapper(show_summary, stats, len(lesson))
-                logging.info(f"Repeat = {repeat}")
+                can_go_back = len(lesson_stack) > 1
+                action = curses.wrapper(show_summary, stats, len(current_lesson), can_go_back)
+                logging.info(f"Action = {action}")
+
+                if action == "repeat":
+                    # Repeat current lesson - just continue loop
+                    continue
+                elif action == "mistakes":
+                    # Create new lesson from mistyped words
+                    top_words = [word for word, _ in stats.get_top_mistyped_words(10)]
+                    if top_words:
+                        mistake_lesson = create_bag_shuffle_lesson(top_words, 3)
+                        lesson_stack.append(mistake_lesson)
+                        logging.info(f"Created mistake lesson: {mistake_lesson[:50]}...")
+                elif action == "back":
+                    # Go back to previous lesson
+                    if len(lesson_stack) > 1:
+                        lesson_stack.pop()
+                        logging.info(f"Went back, stack depth now: {len(lesson_stack)}")
+                elif action == "quit":
+                    # Exit program
+                    break
             else:
                 # User quit without typing anything
-                repeat = False
+                break
+
         except KeyboardInterrupt:
             logging.info("KeyboardInterrupt in main")
-            repeat = False
+            break
         except Exception as e:
             logging.exception("Exception in main")
             raise
