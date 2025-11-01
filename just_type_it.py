@@ -28,6 +28,165 @@ class Lesson:
     source: Optional[str] = None
 
 
+class DisplayLayout:
+    """Manages display layout with margins and content width constraints"""
+
+    MIN_TERMINAL_WIDTH = 40  # Minimum viable terminal width
+    MAX_CONTENT_WIDTH = 100  # Maximum content width for readability
+    MARGIN_PADDING = 4       # Minimum padding on sides
+
+    def __init__(self, terminal_width: int):
+        """Initialize layout for given terminal width"""
+        self.terminal_width = terminal_width
+
+        # Calculate content width: never exceed terminal, cap at MAX_CONTENT_WIDTH
+        self.content_width = min(terminal_width - self.MARGIN_PADDING, self.MAX_CONTENT_WIDTH)
+
+        # Calculate left margin for centering
+        self.left_margin = max(0, (terminal_width - self.content_width) // 2)
+
+    def center_x(self, text_length: int) -> int:
+        """Calculate x position to center text within terminal"""
+        return max(0, (self.terminal_width - text_length) // 2)
+
+    def content_x(self, offset: int = 0) -> int:
+        """Calculate x position within content area (with optional offset)"""
+        return self.left_margin + offset
+
+    @classmethod
+    def check_terminal_size(cls, terminal_width: int) -> bool:
+        """Check if terminal is large enough. Returns True if ok, False if too small."""
+        return terminal_width >= cls.MIN_TERMINAL_WIDTH
+
+
+class TextWrapper:
+    """
+    Wraps text at word boundaries and maintains position mapping.
+
+    Maps between:
+    - Original string index (what the user types through)
+    - Wrapped display position (row, col for rendering)
+    """
+
+    def __init__(self, text: str, width: int):
+        """
+        Initialize wrapper for given text and width.
+
+        Args:
+            text: The original text to wrap
+            width: Maximum line width for wrapping
+        """
+        self.text = text
+        self.width = width
+        self.wrapped_lines: list[str] = []
+        self.index_to_pos: dict[int, tuple[int, int]] = {}  # original_index -> (row, col)
+
+        self._wrap_text()
+
+    def _wrap_text(self):
+        """Wrap text at word boundaries and build position mapping"""
+        current_line = ""
+        current_row = 0
+        current_col = 0
+        original_idx = 0
+
+        # Split by newlines first to preserve paragraph structure
+        paragraphs = self.text.split('\n')
+
+        for para_idx, paragraph in enumerate(paragraphs):
+            if para_idx > 0:
+                # Record the newline character position
+                self.index_to_pos[original_idx] = (current_row, current_col)
+                original_idx += 1
+
+                # Move to next line for the newline
+                if current_line:
+                    self.wrapped_lines.append(current_line)
+                    current_row += 1
+                    current_line = ""
+                    current_col = 0
+                else:
+                    # Empty line (consecutive newlines)
+                    self.wrapped_lines.append("")
+                    current_row += 1
+                    current_col = 0
+
+            # Process words in the paragraph
+            words = paragraph.split(' ')
+            for word_idx, word in enumerate(words):
+                if word_idx > 0:
+                    # Record the space position
+                    self.index_to_pos[original_idx] = (current_row, current_col)
+                    original_idx += 1
+
+                # Check if word fits on current line
+                word_len = len(word)
+                space_needed = word_len if not current_line else len(current_line) + 1 + word_len
+
+                if space_needed <= self.width:
+                    # Word fits on current line
+                    if current_line:
+                        current_line += ' '
+                        current_col += 1
+
+                    # Add each character of the word with its position
+                    for char in word:
+                        self.index_to_pos[original_idx] = (current_row, current_col)
+                        current_line += char
+                        current_col += 1
+                        original_idx += 1
+                else:
+                    # Word doesn't fit - need to wrap
+                    if current_line:
+                        # Finish current line and start new one
+                        self.wrapped_lines.append(current_line)
+                        current_row += 1
+                        current_line = ""
+                        current_col = 0
+
+                    # Handle very long words that exceed line width
+                    if word_len > self.width:
+                        # Hard break the word
+                        for char in word:
+                            if current_col >= self.width:
+                                self.wrapped_lines.append(current_line)
+                                current_row += 1
+                                current_line = ""
+                                current_col = 0
+
+                            self.index_to_pos[original_idx] = (current_row, current_col)
+                            current_line += char
+                            current_col += 1
+                            original_idx += 1
+                    else:
+                        # Word fits on a new line
+                        for char in word:
+                            self.index_to_pos[original_idx] = (current_row, current_col)
+                            current_line += char
+                            current_col += 1
+                            original_idx += 1
+
+            # After processing all words in paragraph, if there's remaining text, save it
+            # (but don't add a new line yet - wait for the next paragraph's newline)
+
+        # Add any remaining text
+        if current_line:
+            self.wrapped_lines.append(current_line)
+
+    def get_position(self, original_index: int) -> tuple[int, int]:
+        """
+        Get wrapped (row, col) position for an original string index.
+
+        Returns:
+            (row, col) tuple for rendering position
+        """
+        return self.index_to_pos.get(original_index, (0, 0))
+
+    def get_line_count(self) -> int:
+        """Get total number of wrapped lines"""
+        return len(self.wrapped_lines)
+
+
 class TypingStats:
     """Track typing statistics like WPM and accuracy"""
 
@@ -203,14 +362,22 @@ def create_bag_shuffle_lesson(words: list[str], num_bags: int = 3) -> str:
     return ' '.join(bags)
 
 
-def draw_lesson_text(stdscr, lesson: str, position: int, has_error: bool, start_y: int, source: Optional[str] = None):
+def draw_lesson_text(stdscr, lesson: str, position: int, has_error: bool, start_y: int, layout: DisplayLayout, source: Optional[str] = None):
     """Draw the lesson text with color coding and optional source"""
     max_y, max_x = stdscr.getmaxyx()
 
-    # Draw the lesson text with colors
-    x, y = 0, start_y
+    # Create text wrapper for proper word wrapping
+    wrapper = TextWrapper(lesson, layout.content_width)
+
+    # Draw each character with appropriate color
     for i, char in enumerate(lesson):
-        if y >= max_y - 4:  # Leave room for status and input
+        # Get wrapped position for this character
+        row, col = wrapper.get_position(i)
+        screen_y = start_y + row
+        screen_x = layout.left_margin + col
+
+        # Check if we've run out of vertical space
+        if screen_y >= max_y - 4:
             break
 
         # Display newlines as a visible symbol
@@ -218,36 +385,25 @@ def draw_lesson_text(stdscr, lesson: str, position: int, has_error: bool, start_
         if char == '\n':
             display_char = '↵'
 
+        # Determine color based on typing progress
         if i < position:
             # Already typed correctly - green
-            stdscr.addstr(y, x, display_char, curses.color_pair(1))
+            stdscr.addstr(screen_y, screen_x, display_char, curses.color_pair(1))
         elif i == position and has_error:
             # Current position with error - red background
-            stdscr.addstr(y, x, display_char, curses.color_pair(2))
+            stdscr.addstr(screen_y, screen_x, display_char, curses.color_pair(2))
         else:
             # Not yet typed - default color
-            stdscr.addstr(y, x, display_char)
-
-        # Handle newlines and line wrapping
-        if char == '\n':
-            x = 0
-            y += 1
-        else:
-            x += 1
-            if x >= max_x - 1:
-                x = 0
-                y += 1
+            stdscr.addstr(screen_y, screen_x, display_char)
 
     # Draw source if present (after the lesson text)
     if source:
-        # Move to next line after lesson text
-        if x > 0:  # If we're not already at the start of a line
-            y += 1
-        y += 1  # Add a blank line for spacing
+        # Position source below the wrapped text
+        source_y = start_y + wrapper.get_line_count() + 1  # +1 for blank line spacing
 
-        if y < max_y - 4:  # Make sure we have room
+        if source_y < max_y - 4:  # Make sure we have room
             source_text = f"— {source}"
-            stdscr.addstr(y, 0, source_text, curses.color_pair(4) | curses.A_DIM)
+            stdscr.addstr(source_y, layout.left_margin, source_text, curses.color_pair(4) | curses.A_DIM)
 
 
 def get_current_word(lesson: str, position: int) -> tuple[str, int]:
@@ -268,6 +424,19 @@ def get_current_word(lesson: str, position: int) -> tuple[str, int]:
 def typing_tutor(stdscr, lesson: Lesson):
     """Main typing tutor interface using curses"""
     logging.info(f"Starting typing_tutor with lesson: {lesson.text[:50]}...")
+
+    # Check terminal size
+    max_y, max_x = stdscr.getmaxyx()
+    if not DisplayLayout.check_terminal_size(max_x):
+        stdscr.addstr(0, 0, f"Terminal too small! Need at least {DisplayLayout.MIN_TERMINAL_WIDTH} columns.")
+        stdscr.addstr(1, 0, f"Current: {max_x} columns")
+        stdscr.addstr(2, 0, "Press any key to exit...")
+        stdscr.refresh()
+        stdscr.getch()
+        return TypingStats()  # Return empty stats
+
+    # Create layout manager
+    layout = DisplayLayout(max_x)
 
     # Initialize colors
     curses.init_pair(1, curses.COLOR_GREEN, curses.COLOR_BLACK)  # Correct
@@ -302,11 +471,11 @@ def typing_tutor(stdscr, lesson: Lesson):
 
         # Draw title
         title = "=== JUST TYPE IT ==="
-        stdscr.addstr(0, max(0, (max_x - len(title)) // 2), title, curses.A_BOLD)
+        stdscr.addstr(0, layout.center_x(len(title)), title, curses.A_BOLD)
 
         # Draw the lesson text
         has_error = len(typed_chars) > 0
-        draw_lesson_text(stdscr, lesson.text, position, has_error, 2, lesson.source)
+        draw_lesson_text(stdscr, lesson.text, position, has_error, 2, layout, lesson.source)
 
         # Get current word and what user has typed for it
         current_word, word_start = get_current_word(lesson.text, position)
@@ -323,8 +492,9 @@ def typing_tutor(stdscr, lesson: Lesson):
 
         # Draw current word being typed
         status_y = max_y - 4
-        stdscr.addstr(status_y, 0, "─" * (max_x - 1))
-        stdscr.addstr(status_y + 1, 0, f"Typing: {display_text}", curses.color_pair(3))
+        # Draw separator line within content area
+        stdscr.addstr(status_y, layout.left_margin, "─" * layout.content_width)
+        stdscr.addstr(status_y + 1, layout.left_margin, f"Typing: {display_text}", curses.color_pair(3))
 
         # Draw statistics
         if position > 0:
@@ -335,8 +505,8 @@ def typing_tutor(stdscr, lesson: Lesson):
         else:
             stats_text = "Start typing to begin..."
 
-        stdscr.addstr(max_y - 2, 0, stats_text, curses.color_pair(3))
-        stdscr.addstr(max_y - 1, 0, "ESC to quit", curses.A_DIM)
+        stdscr.addstr(max_y - 2, layout.left_margin, stats_text, curses.color_pair(3))
+        stdscr.addstr(max_y - 1, layout.left_margin, "ESC to quit", curses.A_DIM)
 
         stdscr.refresh()
 
@@ -478,8 +648,11 @@ def show_summary(stdscr, stats: TypingStats, lesson_length: int, can_go_back: bo
     stdscr.clear()
     max_y, max_x = stdscr.getmaxyx()
 
+    # Create layout manager
+    layout = DisplayLayout(max_x)
+
     title = "=== SUMMARY ==="
-    stdscr.addstr(2, max(0, (max_x - len(title)) // 2), title, curses.A_BOLD)
+    stdscr.addstr(2, layout.center_x(len(title)), title, curses.A_BOLD)
 
     elapsed = stats.get_elapsed_time()
     wpm = stats.get_wpm(lesson_length)
@@ -500,14 +673,14 @@ def show_summary(stdscr, stats: TypingStats, lesson_length: int, can_go_back: bo
     start_y = 4
     y = start_y
     for line in centered_lines:
-        stdscr.addstr(y, max(0, (max_x - len(line)) // 2), line)
+        stdscr.addstr(y, layout.center_x(len(line)), line)
         y += 1
 
     # Add mistyped words section (left-justified within a centered block)
     top_mistyped = stats.get_top_mistyped_words(10)
     if top_mistyped:
         title = "=== TOP MISTYPED WORDS ==="
-        stdscr.addstr(y, max(0, (max_x - len(title)) // 2), title, curses.A_BOLD)
+        stdscr.addstr(y, layout.center_x(len(title)), title, curses.A_BOLD)
         y += 1
         y += 1  # Extra space after header
 
@@ -520,7 +693,7 @@ def show_summary(stdscr, stats: TypingStats, lesson_length: int, can_go_back: bo
         max_line_length = max(len(line) for line in mistyped_lines)
 
         # Draw each line left-justified within the centered block
-        block_start_x = max(0, (max_x - max_line_length) // 2)
+        block_start_x = layout.center_x(max_line_length)
         for line in mistyped_lines:
             stdscr.addstr(y, block_start_x, line)
             y += 1
@@ -539,7 +712,7 @@ def show_summary(stdscr, stats: TypingStats, lesson_length: int, can_go_back: bo
     prompt = " | ".join(prompt_parts)
 
     # Draw final prompt (centered)
-    stdscr.addstr(y, max(0, (max_x - len(prompt)) // 2), prompt)
+    stdscr.addstr(y, layout.center_x(len(prompt)), prompt)
 
     stdscr.refresh()
 
