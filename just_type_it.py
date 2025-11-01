@@ -26,6 +26,7 @@ class TypingStats:
         self.start_time: Optional[float] = None
         self.correct_keystrokes = 0
         self.total_keystrokes = 0
+        self.mistyped_words: dict[str, int] = {}  # word -> error count
 
     def start(self):
         """Start the timer"""
@@ -57,6 +58,18 @@ class TypingStats:
         if self.total_keystrokes == 0:
             return 100.0
         return (self.correct_keystrokes / self.total_keystrokes) * 100
+
+    def record_mistyped_word(self, word: str):
+        """Record a word that was mistyped"""
+        if word in self.mistyped_words:
+            self.mistyped_words[word] += 1
+        else:
+            self.mistyped_words[word] = 1
+
+    def get_top_mistyped_words(self, n: int = 10) -> list[tuple[str, int]]:
+        """Get top N most mistyped words, sorted by error count descending"""
+        sorted_words = sorted(self.mistyped_words.items(), key=lambda x: x[1], reverse=True)
+        return sorted_words[:n]
 
 
 def load_text(text_file: Optional[str], text_input: Optional[str]) -> str:
@@ -183,6 +196,7 @@ def typing_tutor(stdscr, lesson: str):
     stats = TypingStats()
     position = 0  # Position in the lesson text
     typed_chars = ""  # Characters typed for the current word (including errors)
+    current_word_had_error = False  # Track if current word has any errors
 
     logging.info("Entering main loop")
     while True:
@@ -285,12 +299,21 @@ def typing_tutor(stdscr, lesson: str):
 
                 if is_correct:
                     # Correct Enter - advance position
+                    # Check if the current word had errors before moving to next line
+                    if current_word_had_error and position > 0:
+                        current_word, word_start = get_current_word(lesson, position - 1)
+                        if current_word and current_word.strip():  # Ensure it's not empty or whitespace
+                            stats.record_mistyped_word(current_word)
+                            logging.info(f"Recorded mistyped word: '{current_word}'")
+                        current_word_had_error = False  # Reset for next word
+
                     position += 1
                     typed_chars = ""
                     logging.info(f"Correct Enter -> position={position}")
                 else:
                     # Wrong - trying to press Enter when we shouldn't
                     typed_chars += '↵'
+                    current_word_had_error = True  # Mark current word as having errors
                     logging.info(f"Wrong Enter (expected '{repr(expected_char)}') -> typed_chars='{typed_chars}'")
 
         # Handle printable characters
@@ -301,6 +324,7 @@ def typing_tutor(stdscr, lesson: str):
             if typed_chars:
                 stats.record_keystroke(False)
                 typed_chars += char
+                current_word_had_error = True  # Mark current word as having errors
                 logging.info(f"Blocked '{char}' (must fix errors first) -> typed_chars='{typed_chars}'")
             else:
                 expected_char = lesson[position]
@@ -311,13 +335,30 @@ def typing_tutor(stdscr, lesson: str):
 
                 if is_correct:
                     # Correct character - advance position
+                    # Check if we just completed a word (typed space or newline)
+                    if char in (' ', '\n') and current_word_had_error and position > 0:
+                        # Extract the word we just completed (the word before this space/newline)
+                        current_word, word_start = get_current_word(lesson, position - 1)
+                        if current_word and current_word.strip():  # Ensure it's not empty or whitespace
+                            stats.record_mistyped_word(current_word)
+                            logging.info(f"Recorded mistyped word: '{current_word}'")
+                        current_word_had_error = False  # Reset for next word
+
                     position += 1
                     typed_chars = ""
                     logging.info(f"Correct '{char}' -> position={position}")
                 else:
                     # Wrong character - add to typed chars to show error
                     typed_chars += char
+                    current_word_had_error = True  # Mark current word as having errors
                     logging.info(f"Wrong '{char}' (expected '{expected_char}') -> typed_chars='{typed_chars}'")
+
+    # Handle the last word if it had errors and wasn't followed by space/newline
+    if current_word_had_error and position > 0:
+        current_word, word_start = get_current_word(lesson, position - 1)
+        if current_word and current_word.strip():
+            stats.record_mistyped_word(current_word)
+            logging.info(f"Recorded final mistyped word: '{current_word}'")
 
     logging.info(f"Exiting typing_tutor loop, position={position}, lesson_length={len(lesson)}")
     return stats
@@ -344,20 +385,50 @@ def show_summary(stdscr, stats: TypingStats, lesson_length: int) -> bool:
     wpm = stats.get_wpm(lesson_length)
     accuracy = stats.get_accuracy()
 
-    stats_lines = [
+    # Build main stats lines (these will be centered)
+    centered_lines = [
         "",
         f"Time: {elapsed:.2f} seconds",
         f"WPM: {wpm:.2f}",
         f"Accuracy: {accuracy:.2f}%",
         f"Correct keystrokes: {stats.correct_keystrokes}",
         f"Total keystrokes: {stats.total_keystrokes}",
-        "",
-        "Press R to repeat or any other key to exit..."
+        ""
     ]
 
+    # Draw centered stats
     start_y = 4
-    for i, line in enumerate(stats_lines):
-        stdscr.addstr(start_y + i, max(0, (max_x - len(line)) // 2), line)
+    y = start_y
+    for line in centered_lines:
+        stdscr.addstr(y, max(0, (max_x - len(line)) // 2), line)
+        y += 1
+
+    # Add mistyped words section (left-justified within a centered block)
+    top_mistyped = stats.get_top_mistyped_words(10)
+    if top_mistyped:
+        title = "=== TOP MISTYPED WORDS ==="
+        stdscr.addstr(y, max(0, (max_x - len(title)) // 2), title, curses.A_BOLD)
+        y += 1
+        y += 1  # Extra space after header
+
+        # Find the longest line to determine block width
+        mistyped_lines = []
+        for i, (word, count) in enumerate(top_mistyped, 1):
+            plural = "error" if count == 1 else "errors"
+            mistyped_lines.append(f"  {i}. {word} ({count} {plural})")
+
+        max_line_length = max(len(line) for line in mistyped_lines)
+
+        # Draw each line left-justified within the centered block
+        block_start_x = max(0, (max_x - max_line_length) // 2)
+        for line in mistyped_lines:
+            stdscr.addstr(y, block_start_x, line)
+            y += 1
+        y += 1
+
+    # Draw final prompt (centered)
+    prompt = "Press R to repeat or any other key to exit..."
+    stdscr.addstr(y, max(0, (max_x - len(prompt)) // 2), prompt)
 
     stdscr.refresh()
     logging.info("Waiting for key press to exit summary...")

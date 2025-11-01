@@ -8,6 +8,7 @@ A CLI typing tutor with a slick TUI interface, inspired by TypeRacer.
 - **Color-coded feedback**: Green for correct characters, red background for errors
 - **Error enforcement**: Must backspace to fix mistakes before continuing (like a real typing test!)
 - **Live statistics**: See your WPM, accuracy, and elapsed time in real-time
+- **Mistyped word tracking**: See your top 10 most mistyped words after each session
 - **Multi-line support**: Preserves formatting with visible line breaks (↵ symbol)
 - **Flexible input**: Direct text input, files, or default text
 - **Customizable lessons**: Repeat and shuffle words/lines to create varied practice sessions
@@ -114,7 +115,9 @@ After finishing a lesson, press **R** to repeat the same lesson, or any other ke
    - **You must backspace to fix errors before advancing**
 3. **Typing display**: The bottom shows your progress on the current word (including any mistakes)
 4. **Statistics**: Real-time WPM, accuracy percentage, and elapsed time
-5. **Completion**: When you finish, see a summary screen with final statistics
+5. **Completion**: When you finish, see a summary screen with:
+   - Final statistics (Time, WPM, Accuracy)
+   - Top 10 most mistyped words with error counts
 6. **Repeat**: Press R on the summary to practice the same lesson again
 
 ## Statistics
