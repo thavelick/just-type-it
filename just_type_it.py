@@ -362,7 +362,7 @@ def create_bag_shuffle_lesson(words: list[str], num_bags: int = 3) -> str:
     return ' '.join(bags)
 
 
-def draw_lesson_text(stdscr, lesson: str, position: int, has_error: bool, start_y: int, layout: DisplayLayout, source: Optional[str] = None):
+def draw_lesson_text(stdscr, lesson: str, position: int, error_count: int, start_y: int, layout: DisplayLayout, source: Optional[str] = None):
     """Draw the lesson text with color coding and optional source"""
     max_y, max_x = stdscr.getmaxyx()
 
@@ -389,8 +389,8 @@ def draw_lesson_text(stdscr, lesson: str, position: int, has_error: bool, start_
         if i < position:
             # Already typed correctly - green
             stdscr.addstr(screen_y, screen_x, display_char, curses.color_pair(1))
-        elif i == position and has_error:
-            # Current position with error - red background
+        elif error_count > 0 and position <= i < position + error_count:
+            # Current position through error buffer - red background
             stdscr.addstr(screen_y, screen_x, display_char, curses.color_pair(2))
         else:
             # Not yet typed - default color
@@ -474,8 +474,8 @@ def typing_tutor(stdscr, lesson: Lesson):
         stdscr.addstr(0, layout.center_x(len(title)), title, curses.A_BOLD)
 
         # Draw the lesson text
-        has_error = len(typed_chars) > 0
-        draw_lesson_text(stdscr, lesson.text, position, has_error, 2, layout, lesson.source)
+        error_count = len(typed_chars)
+        draw_lesson_text(stdscr, lesson.text, position, error_count, 2, layout, lesson.source)
 
         # Get current word and what user has typed for it
         current_word, word_start = get_current_word(lesson.text, position)
